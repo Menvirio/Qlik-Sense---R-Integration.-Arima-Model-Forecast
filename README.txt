@@ -1,4 +1,4 @@
-# Multi-Restaurant Menu Scraper 🍴
+# Plat Du Jour Project 🍴
 
 An automated Python solution designed to scrape, process, and aggregate daily specials ("Plat du Jour") from multiple restaurant websites into a single, organized Excel report.
 
