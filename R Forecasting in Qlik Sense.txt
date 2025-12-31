@@ -1,0 +1,242 @@
+Qlik Sense Advanced analytics integration
+Predictive analysis with Arima model written in R code and embedded in Qlik editor script
+
+
+
+1. Introduction
+Hello everyone! I was asked to implement a predictive model in Qlik Sense for a work project.
+The model had been originally written in R code and the project was about transferring it on Qlik Sense, so that the forecast could be automatically scheduled every month. 
+Doing so, the client could watch the predicted results on the dashboard and export data in excel  with no manual intervention. 
+In this document I would like to show how to apply the Arima predictive model on a simple time series dataset, in order to predict the outcome of a target variable for the following months. 
+I think the added value of this document can be found in chapter 5, where it is explained line-by-line how to recall the R script in the Qlik Sense editor. So if you had already installed R-Serve and the SSE-R plug I recommend you to  directly go to this chapter. 
+
+
+2. Dataset
+As mentioned in the introduction, the dataset is very simple and it is composed of two columns: 
+* Time Dimension. It represents the period of time in which the target dimension is observed. Granularity can be different according to the time span (Year, month, day, hour…); however, it does not affect the forecast model. 
+* Target Dimension. It is the numeric variable that we want to predict. It could be literally anything: Revenues, #Orders, #Customer Tickets , #Rain drops in a certain region etc. 
+In our case, the dataset  dimensions are the number of months from Jan. 2018 to Dec 2021 and we will pretend that the target variable is the number of orders that a fictional company has received during the last 48 months. 
+
+
+
+
+Date
+	#Orders 
+	01/01/2018
+	133.300
+	01/02/2018
+	97.551
+	01/03/2018
+	95.452
+	…
+	…
+	01/12/2021
+	93.095
+	
+
+Dataset Sample
+
+
+
+
+As you can notice, under the date column the month is represented by the first day of the month in DD/MM/YYYY format. 
+3. R script
+In the attached document you can find the R script of the Arima Model. 
+The script is divided in 4 sections:
+* Data Import iwhere the Dataset.csv is uspload
+* Data preparation where the dataset is formatted
+* Forecasting where the Arima model is applied
+* Output Export where the data frame with forecast result  extracted in a new .csv
+
+
+You may find more comments in the .r file. Note that I am not discussing the quality of the model or the results.  If you are looking for more information about the Arima model parameters in R, I recommend the following article: https://otexts.com/fpp2/arima-r.html
+
+
+4. Advanced analytics integration
+Before moving to the Qlik Sense editor script, it is necessary to install a R Serve and SSE R plugin to perform predictive analytics in Qlik Sense. 
+
+
+Advanced analytics integration in Qlik Sense and QlikView allows users to interact with and explore advanced calculations from third-party engines such as R, Python, Matlab, Spark, etc. As users make selections, data is sent from the Qlik engine to third party tools, calculations are made in realtime, and the results are returned and immediately visualized for the user. This allows people to ask their own questions and spot insights that would have been missed with query-based or batch approaches. 
+  
+
+
+In our case we need to install: 
+
+
+* Rserve — A TCP/IP server which allows other programs to use R without initialising a separate R process or linking against an R library; and
+* SSE R-plugin — A server-side extension (SSE) which provides the interface between Qlik Sense and Rserve.
+You may find detailed instruction on how to install these two components by clicking on the  following link: 
+
+
+https://community.qlik.com/t5/Knowledge/R-Integration-with-Qlik-Sense/ta-p/1717165
+
+
+Qlik Fix: How to Use Analytic Connections to Enable Server-Side-Extension (SSE) in Qlik Sense
+5. R.ScriptEval() embedded in Qlik editor script
+After having installed the R package we can now apply the R functions to predict the expected results for the future. In this chapter I will show how to load and prepare the database presented in chapter 2 (5.1), how to execute the embedded R script (5.2) and how to format the output of the forecast for a better visualization (5.3). 
+
+
+5.1 Data load and preparation
+[Dataset]:
+Load
+Date, //First of the month which represents each month  with the time period. 
+Orders as N_Orders //Number of orders observed each month
+FROM Dataset.xls
+
+
+
+
+
+//Definition of time parameters that will be useful for data visualization
+
+
+Temp_time_parameters:
+Load
+   Min(Date) as First_Month,
+   Max(Date) as Last_Month,
+   Date(MonthStart(Max(Date),-1)) as Penultimate_Month //Penultimate Month
+   Resident [Dataset];
+
+
+LET vFirst_Month = floor(peek('First_Month'));
+LET vLast_Month = floor(peek('Last_Month'));
+LET vPenultimate_Month = floor(peek('Penultimate_Month'));
+
+
+Drop Table Temp_time_parameters;
+
+
+[Time_parameters_forecast]:
+Load* Inline 
+[First_Month, Last_Month, Penultimate_Month   
+'$(vFirst_Month)','$(vLast_Month)','$(vPenultimate_Month)' ];
+5.2 Forecast Table
+Tmp_Forecast:
+NoConcatenate
+Load* //* To fill  the table with all dimensions in the dataframe
+
+
+
+
+Extension R.ScriptEval( //This function allow to replicate the R code within the round brackets
+'library(dplyr);
+library(forecast); 
+Time_series= ts(na.omit(q$N_Orders),start = c(min(q$Date)),  frequency = 12); 
+fit = arima(Time_series, order= c(6,1,1));
+x <- round(as.data.frame(forecast(fit,4))/1000,0)*1000; 
+colnames(x) <- c("forecast")
+x$month_forecast  <- 1:nrow(x);
+x[c("month_forecast","forecast")]', 
+ [Dataset]{N_Orders, Date } )  
+;
+
+
+
+
+
+
+//______________________________Comments to the embedded code_________________
+
+
+
+// library(dplyr);        //two libraries imported from R that are needed for forecasting
+// library(forecast); 
+// Time_series = ts(na.omit(q$N_Orders),start = c(min(q$Date)), frequency = 12);  //time_series is an //object that associate the time dimension (date) the respective monthly number of order (N_Orders). //Note that q by default is the alias of the input data frame, which in our case is [Dataset].
+// fit = arima(Time_series, order= c(6,1,1));    //fit is an object that is the result of the Arima function //applied to the time_series  matrix. Note that in this case we chose to set arima param. manually //(c(6,1,1)). Alternatively,you can use the autofit function to pick the best ones (fit = //auto.arima(Tot_ticket))
+// x <- round(as.data.frame(forecast(fit,3))/1000,0)*1000;                      //x is a dataframe with 1 //column  containin the  predicted results for the next 3 months. If you change the parameter after fit  //(fit,3) you can extend/reduce the forecast time period. Other operations in this line are just applied //to round the numbers of the prediction. 
+// colnames(x) <- c("forecast")              //The result vector is renamed as “forecast”
+// x$month_forecast  <- 1:nrow(x);        //Add a row index to assing the N_Orders to the future months (month 1,2,3)
+// x[c("month_forecast","forecast")]',       //Redefine the data frame x  with the two new columns
+// [Dataset]{N_Orders, Date } )            //In the last line before closing the R.ScriptEval() brackets, we //need to name the input Table [Dataset] and the dimensione that are manipulated in the R script { //N_Orders, Date }  
+
+
+//After having executed these code lines, we can rename the Tmp_Forecast table with the //Tab_Forecast table that select the dimensions of the  x data frame ("month_forecast","forecast") //and add some columns to improve the time dimension format
+5.3 Output Formatting
+Tab_Forecast: 
+Load Distinct 
+forecast as N_Orders_forecast, 
+month_forecast as Index_month,
+
+
+
+
+if(month_forecast = 1, AddMonths('$(vLast_Month)',1), //Note that we are considering January 2022 (the current month) as the first future month to be predicted. It is a future month in the sense that the month is not finished yet. 
+if(month_forecast = 2, AddMonths('$(vLast_Month)',2),
+if(month_forecast = 3, AddMonths('$(vLast_Month)',3,'Error')))) as Future_month
+//New column associating the first of the month in DD-MM-YYYY format to the future month index //(1,2,3)
+Resident Tmp_Forecast
+Order by month_forecast;
+
+
+
+
+Drop Table Tmp_Forecast;
+
+
+
+
+
+
+
+
+//Concatenate past and future data can be useful to plot N_Orders per month in a line chart
+Tab_past_and_future_data:
+Load
+Num( N_Orders, '#.##0') as N_Orders_complete, 
+Date(Date) as Date_month,
+MonthName(Date) as Month_name,
+Year(Date) as Year
+
+
+Resident Dataset;
+
+
+Concatenate(Tab_past_and_future_data)
+
+
+Load
+Num( N_Orders_forecast, '#.##0') as N_Orders_complete, 
+Date(Future_month) as Date_month,
+MonthName(Future_month) as Month_name,
+Year(Future_month) as Year
+Resident Tab_Forecast;
+
+
+
+
+
+
+
+
+
+6. Dashboard Visualization
+A simple output table is the one showing Year, Month and the number of future orders.
+
+
+  
+
+The first future month is considered to be the current month as the number of monthly orders may increase until the last day of the month. Note that forecast orders are different from the R code output file in txt as the dataset input dataset is slightly different (one extra month registered in the dataset as January 2022 is absent in the input txt file)
+Here are the formulas used to build the above table: 
+
+
+           
+Dimensions
+	Code
+	Year
+	if(Month_name >= vLast_Month, year(Month_name), null())
+	Month
+	if(Month_name >= vLast_Month, month(Month_name), null())
+	#Future Orders
+	N_Orders_complete
+	
+
+As we built the Tab_past_and_future_data which contains both past and future #orders under the same column, we can create an area (or line) chart showing the trend per month  
+          
+Dimensions/Measures
+	Code
+	Dimension
+	Date_month
+	Measure
+	N_Orders_complete 
+	Color expression
+	if((Data_mese-vPenUltimo_mese)<=0,color(1),color(4)
